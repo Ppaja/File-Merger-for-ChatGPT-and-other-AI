@@ -18,7 +18,7 @@ The File Merger for ChatGPT and Other AI is a convenient tool designed to quickl
 
 ## Installation
 
-1. Download the latest release from the [GitHub repository](https://github.com/Ppaja/File-Merger-for-ChatGPT-and-other-AI/releases).
+1. Download the latest release [here](https://github.com/Ppaja/File-Merger-for-ChatGPT-and-other-AI/archive/refs/heads/main.zip).
 2. Extract the ZIP file to a location of your choice.
 3. Run the `install.bat` file to install the required dependencies (one-time setup).
 
