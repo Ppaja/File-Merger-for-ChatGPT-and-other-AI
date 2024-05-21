@@ -1,7 +1,7 @@
 # File Merger for ChatGPT and Other AI
-<small>
+<sup>
 Please note that I created this tool primarily for my own use, as I was frustrated with having to copy and paste numerous code snippets into every new AI chat. With the increasing token context limits of AI language models, I believe this tool offers a convenient solution for larger codebases, allowing you to quickly provide all relevant information to the AI. For me, it fulfills all my needs, but that might not be the case for you. Feel free to modify the tool according to your requirements.
-</small>
+</sup>
 
 ## Description
 
