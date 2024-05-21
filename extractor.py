@@ -39,7 +39,6 @@ class FileMergerApp(QMainWindow):
         if folder_selected:
             self.root_directory = folder_selected
             self.populate_tree()
-
     def populate_tree(self):
         self.tree.clear()
         self.add_items(self.tree.invisibleRootItem(), self.root_directory)
@@ -86,7 +85,7 @@ class FileMergerApp(QMainWindow):
                 # Schreiben des Dateibaums in die Ausgabedatei
                 merge_file.write("File Tree:\n")
                 self.write_tree_summary(self.tree.invisibleRootItem(), merge_file)
-                merge_file.write("\n\nFiles:\nIn this format: \nFILENAME\nPATH\nFILES-CONTENT\n\n")
+                merge_file.write("\n\nMerged Files:\n")
                 # Schreiben der zusammengeführten Dateien
                 self.write_files(self.tree.invisibleRootItem(), merge_file)
             QMessageBox.information(self, "Success", f"Merged files into {merge_filename}")
@@ -111,20 +110,19 @@ class FileMergerApp(QMainWindow):
     def write_files(self, tree_item, merge_file):
         for index in range(tree_item.childCount()):
             child = tree_item.child(index)
-            if child.checkState(0) == Qt.Checked:
-                full_path = child.data(0, Qt.UserRole)
-                if os.path.isdir(full_path):
-                    self.write_files(child, merge_file)
-                else:
-                    try:
-                        with open(full_path, 'r', encoding='utf-8') as f:
-                            merge_file.write(f"{os.path.basename(full_path)}:\n")
-                            merge_file.write(f"{os.path.relpath(full_path, self.root_directory)}\n")
-                            merge_file.write(f.read() + "\n")
-                    except:
+            full_path = child.data(0, Qt.UserRole)
+            if child.checkState(0) == Qt.Checked and os.path.isfile(full_path):
+                try:
+                    with open(full_path, 'r', encoding='utf-8') as f:
                         merge_file.write(f"{os.path.basename(full_path)}:\n")
                         merge_file.write(f"{os.path.relpath(full_path, self.root_directory)}\n")
-                        merge_file.write("Could not read file\n")
+                        merge_file.write(f.read() + "\n")
+                except:
+                    merge_file.write(f"{os.path.basename(full_path)}:\n")
+                    merge_file.write(f"{os.path.relpath(full_path, self.root_directory)}\n")
+                    merge_file.write("Could not read file\n")
+            elif os.path.isdir(full_path):
+                self.write_files(child, merge_file)
 
     def open_output_folder(self):
         path = os.path.abspath(self.output_folder)

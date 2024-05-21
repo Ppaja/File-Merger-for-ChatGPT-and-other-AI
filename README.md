@@ -40,6 +40,52 @@ This application is built using Python and the PyQt5 library. The required depen
 
 ## Contributing
 
-
-
 This project is open-source and freely available for anyone to modify and build upon.
+
+<details>
+<summary>Example-Output</summary>
+
+```bash
+File Tree:
+├── css
+│   └── style.css
+├── firebase
+│   └── firebase.js (not included)
+├── index.html
+└── js
+    ├── generate.js (not included)
+    ├── logic.js (not included)
+    ├── nav.js (not included)
+    └── subjs
+        └── sub.js
+
+
+Merged Files:
+style.css:
+css\style.css
+/* this is the css file */
+.container {
+    color: red;
+}
+
+
+index.html:
+index.html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+</head>
+<body>
+    <h1>this is the index file</h1>
+</body>
+</html>
+sub.js:
+js\subjs\sub.js
+
+this is the subfolder js file
+
+```
+</details>
