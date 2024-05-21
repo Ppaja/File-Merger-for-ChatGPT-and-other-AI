@@ -5,14 +5,14 @@ Please note that I created this tool primarily for my own use, as I was frustrat
 
 ## Description
 
-The File Merger for ChatGPT and Other AI is a convenient tool designed to quickly merge relevant files for interaction with AI systems like ChatGPT or Claude. It allows you to select a directory containing your files, choose which files to include, and generate a single output file with the merged content. This streamlines the process of providing code or text content to AI systems, making it easier to share and process the information.
+This File Merger is for ChatGPT and Other AIs. Its designed to quickly merge relevant files for interaction with AI systems like ChatGPT or Claude. It allows you to select a directory containing your files, choose which files to include, and generate a single output file with the merged content. This streamlines the process of providing code or text content to AI systems, making it easier to share and process the information.
 
 ## Features
 
 - Graphical user interface for easy file and folder selection
 - Checkbox-based selection to include or exclude specific files and folders
-- Generates a single output file containing the merged content of selected files
-- Displays the file tree structure at the beginning of the output file
+- Generates a single output file containing a filetree and the merged content of selected files
+- Displays a file tree structure at the beginning of the output file
 - Includes file paths and names for each merged file in the output
 - Quick access button to open the output folder directly
 
@@ -43,7 +43,3 @@ This application is built using Python and the PyQt5 library. The required depen
 
 
 This project is open-source and freely available for anyone to modify and build upon.
-
-## Download
-
-[Download the latest release here](https://github.com/Ppaja/File-Merger-for-ChatGPT-and-other-AI/releases/latest)
