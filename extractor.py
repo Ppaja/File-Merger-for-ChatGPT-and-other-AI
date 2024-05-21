@@ -1,126 +1,140 @@
 import os
-import sys
-from PyQt5.QtWidgets import QApplication, QMainWindow, QFileDialog, QTreeWidgetItem, QTreeWidget, QPushButton, QVBoxLayout, QWidget
+import subprocess
+from PyQt5.QtWidgets import QApplication, QMainWindow, QFileDialog, QTreeWidget, QTreeWidgetItem, QPushButton, QVBoxLayout, QWidget, QMessageBox
 from PyQt5.QtCore import Qt
 
-def list_files(startpath):
-    structure = []
-    root_item = QTreeWidgetItem([os.path.basename(startpath)])
-    root_item.setCheckState(0, Qt.Checked)
-    for root, dirs, files in os.walk(startpath):
-        level = root.replace(startpath, '').count(os.sep)
-        if level == 0:
-            for file in files:
-                file_path = os.path.join(root, file)
-                file_item = QTreeWidgetItem([file])
-                file_item.setData(0, Qt.UserRole, file_path)
-                file_item.setCheckState(0, Qt.Checked)
-                root_item.addChild(file_item)
-        else:
-            dir_item = QTreeWidgetItem([os.path.basename(root)])
-            dir_item.setCheckState(0, Qt.Checked)
-            root_item.addChild(dir_item)
-            for file in files:
-                file_path = os.path.join(root, file)
-                file_item = QTreeWidgetItem([file])
-                file_item.setData(0, Qt.UserRole, file_path)
-                file_item.setCheckState(0, Qt.Checked)
-                dir_item.addChild(file_item)
-    structure.append(root_item)
-    return structure
-
-def merge_files(startpath, output_file, items):
-    def write_tree(item, outfile, prefix=""):
-        # Überprüfen, ob das Element ein Verzeichnis oder eine Datei ist
-        if item.childCount() > 0:  # Verzeichnis
-            outfile.write(f"{prefix}{item.text(0)}\n")
-            new_prefix = "│   " if prefix else ""
-            for i in range(item.childCount()):
-                child = item.child(i)
-                if i == item.childCount() - 1:
-                    child_prefix = prefix + "└── "
-                else:
-                    child_prefix = prefix + "├── "
-                write_tree(child, outfile, child_prefix)
-        else:  # Datei
-            inclusion_status = "" if item.checkState(0) == Qt.Checked else " (not included)"
-            outfile.write(f"{prefix}{item.text(0)}{inclusion_status}\n")
-
-    with open(output_file, 'w', encoding='utf-8') as outfile:
-        outfile.write("File tree:\n\n")
-        for item in items:
-            write_tree(item, outfile)
-        outfile.write("\nFILES:\n\n")
-        for item in items:
-            for i in range(item.childCount()):
-                child = item.child(i)
-                if child.checkState(0) == Qt.Checked and child.childCount() == 0:
-                    data = child.data(0, Qt.UserRole)
-                    if data is not None:
-                        file_path = os.path.join(startpath, data)
-                        relative_path = os.path.relpath(file_path, startpath)
-                        with open(file_path, 'r', encoding='utf-8') as infile:
-                            outfile.write(f"{relative_path}:\n")
-                            outfile.write(infile.read())
-                            outfile.write("\n")
-
-                            
-class MainWindow(QMainWindow):
+class FileMergerApp(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("File Merger")
+        self.setWindowTitle('File Merger')
         self.setGeometry(100, 100, 800, 600)
-
-        central_widget = QWidget()
-        self.setCentralWidget(central_widget)
-
-        layout = QVBoxLayout()
-        central_widget.setLayout(layout)
-
-        self.tree_widget = QTreeWidget()
-        self.tree_widget.setHeaderLabels(["Files"])
-        layout.addWidget(self.tree_widget)
-
-        button_layout = QVBoxLayout()
-        layout.addLayout(button_layout)
-
-        browse_button = QPushButton("Browse")
-        browse_button.clicked.connect(self.browse_folder)
-        button_layout.addWidget(browse_button)
-
-        merge_button = QPushButton("Merge")
-        merge_button.clicked.connect(self.merge_files)
-        button_layout.addWidget(merge_button)
-
-        # Connect the itemChanged signal to a slot
-        self.tree_widget.itemChanged.connect(self.update_check_state)
-
-    def update_check_state(self, item, column):
-        # Apply the check state of the parent item to all its children
-        check_state = item.checkState(column)
-        for i in range(item.childCount()):
-            child = item.child(i)
-            child.setCheckState(column, check_state)
+        
+        self.central_widget = QWidget()
+        self.setCentralWidget(self.central_widget)
+        
+        self.layout = QVBoxLayout(self.central_widget)
+        
+        self.tree = QTreeWidget()
+        self.tree.setHeaderLabels(['Files and Folders'])
+        self.tree.itemChanged.connect(self.handle_item_changed)
+        self.layout.addWidget(self.tree)
+        
+        self.browse_button = QPushButton('Browse')
+        self.browse_button.clicked.connect(self.browse_folder)
+        self.layout.addWidget(self.browse_button)
+        
+        self.merge_button = QPushButton('Merge')
+        self.merge_button.clicked.connect(self.merge_files)
+        self.layout.addWidget(self.merge_button)
+        
+        self.open_folder_button = QPushButton('Open Output Folder')
+        self.open_folder_button.clicked.connect(self.open_output_folder)
+        self.layout.addWidget(self.open_folder_button)
+        
+        self.root_directory = None
+        self.output_folder = "outputFolder"
 
     def browse_folder(self):
-        folder_path = QFileDialog.getExistingDirectory(self, "Select Folder")
-        if folder_path:
-            self.tree_widget.clear()
-            items = list_files(folder_path)
-            self.tree_widget.addTopLevelItems(items)
-            self.startpath = folder_path
+        folder_selected = QFileDialog.getExistingDirectory(self, "Select Directory")
+        if folder_selected:
+            self.root_directory = folder_selected
+            self.populate_tree()
+
+    def populate_tree(self):
+        self.tree.clear()
+        self.add_items(self.tree.invisibleRootItem(), self.root_directory)
+
+    def add_items(self, parent_item, path):
+        for item in os.listdir(path):
+            full_path = os.path.join(path, item)
+            tree_item = QTreeWidgetItem(parent_item, [item])
+            tree_item.setCheckState(0, Qt.Checked)
+            tree_item.setData(0, Qt.UserRole, full_path)
+            if os.path.isdir(full_path):
+                self.add_items(tree_item, full_path)
+
+    def handle_item_changed(self, item, column):
+        if item.checkState(column) == Qt.Checked:
+            self.check_all_children(item, Qt.Checked)
+            self.check_all_parents(item)
+        elif item.checkState(column) == Qt.Unchecked:
+            self.check_all_children(item, Qt.Unchecked)
+            self.check_all_parents(item)
+    
+    def check_all_children(self, item, check_state):
+        for index in range(item.childCount()):
+            child = item.child(index)
+            child.setCheckState(0, check_state)
+            self.check_all_children(child, check_state)
+
+    def check_all_parents(self, item):
+        parent = item.parent()
+        if parent:
+            unchecked_children = any(child.checkState(0) == Qt.Unchecked for child in [parent.child(i) for i in range(parent.childCount())])
+            if unchecked_children:
+                parent.setCheckState(0, Qt.Unchecked)
+            else:
+                parent.setCheckState(0, Qt.Checked)
+            self.check_all_parents(parent)
 
     def merge_files(self):
-        output_dir = os.path.join(self.startpath, 'outputMerge')
-        if not os.path.exists(output_dir):
-            os.makedirs(output_dir)
-        output_file = os.path.join(output_dir, 'merged.txt')
-        items = self.tree_widget.findItems("", Qt.MatchContains | Qt.MatchRecursive)
-        merge_files(self.startpath, output_file, items)
-        print(f"Merged file created at: {output_file}")
+        if not os.path.exists(self.output_folder):
+            os.makedirs(self.output_folder)
+        merge_filename = os.path.join(self.output_folder, 'mergeOutput.txt')
+        try:
+            with open(merge_filename, 'w', encoding='utf-8') as merge_file:
+                # Schreiben des Dateibaums in die Ausgabedatei
+                merge_file.write("File Tree:\n")
+                self.write_tree_summary(self.tree.invisibleRootItem(), merge_file)
+                merge_file.write("\n\nFiles:\nIn this format: \nFILENAME\nPATH\nFILES-CONTENT\n\n")
+                # Schreiben der zusammengeführten Dateien
+                self.write_files(self.tree.invisibleRootItem(), merge_file)
+            QMessageBox.information(self, "Success", f"Merged files into {merge_filename}")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"An error occurred: {e}")
+
+    def write_tree_summary(self, tree_item, merge_file, prefix="", is_last=True):
+        for index in range(tree_item.childCount()):
+            child = tree_item.child(index)
+            full_path = child.data(0, Qt.UserRole)
+            is_last_child = index == tree_item.childCount() - 1
+            if os.path.isdir(full_path):
+                merge_file.write(f"{prefix}{'└── ' if is_last_child else '├── '}{os.path.basename(full_path)}\n")
+                new_prefix = prefix + ("    " if is_last_child else "│   ")
+                self.write_tree_summary(child, merge_file, new_prefix, is_last_child)
+            else:
+                if child.checkState(0) == Qt.Checked:
+                    merge_file.write(f"{prefix}{'└── ' if is_last_child else '├── '}{os.path.basename(full_path)}\n")
+                else:
+                    merge_file.write(f"{prefix}{'└── ' if is_last_child else '├── '}{os.path.basename(full_path)} (not included)\n")
+
+    def write_files(self, tree_item, merge_file):
+        for index in range(tree_item.childCount()):
+            child = tree_item.child(index)
+            if child.checkState(0) == Qt.Checked:
+                full_path = child.data(0, Qt.UserRole)
+                if os.path.isdir(full_path):
+                    self.write_files(child, merge_file)
+                else:
+                    try:
+                        with open(full_path, 'r', encoding='utf-8') as f:
+                            merge_file.write(f"{os.path.basename(full_path)}:\n")
+                            merge_file.write(f"{os.path.relpath(full_path, self.root_directory)}\n")
+                            merge_file.write(f.read() + "\n")
+                    except:
+                        merge_file.write(f"{os.path.basename(full_path)}:\n")
+                        merge_file.write(f"{os.path.relpath(full_path, self.root_directory)}\n")
+                        merge_file.write("Could not read file\n")
+
+    def open_output_folder(self):
+        path = os.path.abspath(self.output_folder)
+        if os.name == 'nt':  # Windows
+            os.startfile(path)
+        elif os.name == 'posix':  # macOS, Linux
+            subprocess.Popen(['open', path])
 
 if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    window = MainWindow()
+    app = QApplication([])
+    window = FileMergerApp()
     window.show()
-    sys.exit(app.exec_())
+    app.exec_()
