@@ -33,18 +33,29 @@ class FileMergerApp(QMainWindow):
         
         self.root_directory = None
         self.output_folder = "outputFolder"
+        self.ignore_list = self.load_ignore_list()
+
+    def load_ignore_list(self):
+        ignore_list = []
+        if os.path.exists('ignore.txt'):
+            with open('ignore.txt', 'r', encoding='utf-8') as file:
+                ignore_list = [line.strip() for line in file if line.strip()]
+        return ignore_list
 
     def browse_folder(self):
         folder_selected = QFileDialog.getExistingDirectory(self, "Select Directory")
         if folder_selected:
             self.root_directory = folder_selected
             self.populate_tree()
+
     def populate_tree(self):
         self.tree.clear()
         self.add_items(self.tree.invisibleRootItem(), self.root_directory)
 
     def add_items(self, parent_item, path):
         for item in os.listdir(path):
+            if item in self.ignore_list:
+                continue
             full_path = os.path.join(path, item)
             tree_item = QTreeWidgetItem(parent_item, [item])
             tree_item.setCheckState(0, Qt.Checked)
@@ -97,10 +108,15 @@ class FileMergerApp(QMainWindow):
             child = tree_item.child(index)
             full_path = child.data(0, Qt.UserRole)
             is_last_child = index == tree_item.childCount() - 1
+
             if os.path.isdir(full_path):
-                merge_file.write(f"{prefix}{'└── ' if is_last_child else '├── '}{os.path.basename(full_path)}\n")
-                new_prefix = prefix + ("    " if is_last_child else "│   ")
-                self.write_tree_summary(child, merge_file, new_prefix, is_last_child)
+                folder_included = any(child.child(j).checkState(0) == Qt.Checked for j in range(child.childCount()))
+                if folder_included:
+                    merge_file.write(f"{prefix}{'└── ' if is_last_child else '├── '}{os.path.basename(full_path)}\n")
+                    new_prefix = prefix + ("    " if is_last_child else "│   ")
+                    self.write_tree_summary(child, merge_file, new_prefix, is_last_child)
+                else:
+                    merge_file.write(f"{prefix}{'└── ' if is_last_child else '├── '}{os.path.basename(full_path)} (not included)\n")
             else:
                 if child.checkState(0) == Qt.Checked:
                     merge_file.write(f"{prefix}{'└── ' if is_last_child else '├── '}{os.path.basename(full_path)}\n")
