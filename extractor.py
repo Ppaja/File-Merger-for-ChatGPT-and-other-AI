@@ -16,6 +16,7 @@ class FileMergerApp(QMainWindow):
         
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(['Files and Folders'])
+        self.tree.setState(True)  # Aktiviere Tri-State-Checkboxen (teilweise aktiviert)
         self.tree.itemChanged.connect(self.handle_item_changed)
         self.layout.addWidget(self.tree)
         
@@ -34,6 +35,7 @@ class FileMergerApp(QMainWindow):
         self.root_directory = None
         self.output_folder = "outputFolder"
         self.ignore_list = self.load_ignore_list()
+        self.updating = False  # Verhindert rekursive Signalverarbeitung
 
     def load_ignore_list(self):
         ignore_list = []
@@ -64,28 +66,54 @@ class FileMergerApp(QMainWindow):
                 self.add_items(tree_item, full_path)
 
     def handle_item_changed(self, item, column):
+        if self.updating:
+            return
+        
+        self.updating = True
+        self.tree.blockSignals(True)  # Blockiere Signale während der Aktualisierung
+        
+        # Aktualisiere Kinder basierend auf dem Elternstatus
         if item.checkState(column) == Qt.Checked:
             self.check_all_children(item, Qt.Checked)
-            self.check_all_parents(item)
         elif item.checkState(column) == Qt.Unchecked:
             self.check_all_children(item, Qt.Unchecked)
-            self.check_all_parents(item)
+        
+        # Aktualisiere Elternstatus basierend auf Kinderstatus
+        self.update_parent_state(item.parent())
+        
+        self.tree.blockSignals(False)  # Aktiviere Signale wieder
+        self.updating = False
     
     def check_all_children(self, item, check_state):
-        for index in range(item.childCount()):
-            child = item.child(index)
+        for i in range(item.childCount()):
+            child = item.child(i)
             child.setCheckState(0, check_state)
             self.check_all_children(child, check_state)
 
-    def check_all_parents(self, item):
-        parent = item.parent()
-        if parent:
-            unchecked_children = any(child.checkState(0) == Qt.Unchecked for child in [parent.child(i) for i in range(parent.childCount())])
-            if unchecked_children:
-                parent.setCheckState(0, Qt.Unchecked)
-            else:
-                parent.setCheckState(0, Qt.Checked)
-            self.check_all_parents(parent)
+    def update_parent_state(self, parent):
+        if parent is None:
+            return
+        
+        checked_count = 0
+        partially_checked_count = 0
+        total_count = parent.childCount()
+        
+        for i in range(total_count):
+            child_state = parent.child(i).checkState(0)
+            if child_state == Qt.Checked:
+                checked_count += 1
+            elif child_state == Qt.PartiallyChecked:
+                partially_checked_count += 1
+        
+        if checked_count == total_count:
+            parent.setCheckState(0, Qt.Checked)
+        elif checked_count == 0 and partially_checked_count == 0:
+            parent.setCheckState(0, Qt.Unchecked)
+        else:
+            parent.setCheckState(0, Qt.PartiallyChecked)
+        
+        # Aktualisiere rekursiv den Elternstatus des Elternelements
+        self.update_parent_state(parent.parent())
 
     def merge_files(self):
         if not os.path.exists(self.output_folder):
@@ -108,9 +136,10 @@ class FileMergerApp(QMainWindow):
             child = tree_item.child(index)
             full_path = child.data(0, Qt.UserRole)
             is_last_child = index == tree_item.childCount() - 1
+            check_state = child.checkState(0)
 
             if os.path.isdir(full_path):
-                folder_included = any(child.child(j).checkState(0) == Qt.Checked for j in range(child.childCount()))
+                folder_included = check_state != Qt.Unchecked
                 if folder_included:
                     merge_file.write(f"{prefix}{'└── ' if is_last_child else '├── '}{os.path.basename(full_path)}\n")
                     new_prefix = prefix + ("    " if is_last_child else "│   ")
@@ -118,7 +147,7 @@ class FileMergerApp(QMainWindow):
                 else:
                     merge_file.write(f"{prefix}{'└── ' if is_last_child else '├── '}{os.path.basename(full_path)} (not included)\n")
             else:
-                if child.checkState(0) == Qt.Checked:
+                if check_state == Qt.Checked:
                     merge_file.write(f"{prefix}{'└── ' if is_last_child else '├── '}{os.path.basename(full_path)}\n")
                 else:
                     merge_file.write(f"{prefix}{'└── ' if is_last_child else '├── '}{os.path.basename(full_path)} (not included)\n")
@@ -127,7 +156,9 @@ class FileMergerApp(QMainWindow):
         for index in range(tree_item.childCount()):
             child = tree_item.child(index)
             full_path = child.data(0, Qt.UserRole)
-            if child.checkState(0) == Qt.Checked and os.path.isfile(full_path):
+            check_state = child.checkState(0)
+            
+            if check_state == Qt.Checked and os.path.isfile(full_path):
                 try:
                     with open(full_path, 'r', encoding='utf-8') as f:
                         merge_file.write(f"{os.path.basename(full_path)}:\n")
@@ -137,7 +168,8 @@ class FileMergerApp(QMainWindow):
                     merge_file.write(f"{os.path.basename(full_path)}:\n")
                     merge_file.write(f"{os.path.relpath(full_path, self.root_directory)}\n")
                     merge_file.write("Could not read file\n")
-            elif os.path.isdir(full_path):
+            elif os.path.isdir(full_path) and check_state != Qt.Unchecked:
+                # Verarbeite sowohl vollständig als auch teilweise ausgewählte Ordner
                 self.write_files(child, merge_file)
 
     def open_output_folder(self):
