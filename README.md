@@ -1,20 +1,18 @@
 # File Merger for ChatGPT and Other AI
 <sup>
-Please note that I created this tool primarily for my own use, as I was frustrated with having to copy and paste numerous code snippets into every new AI chat. With the increasing token context limits of AI language models, I believe this tool offers a convenient solution for larger codebases, allowing you to quickly provide all relevant information to the AI. For me, it fulfills all my needs, but that might not be the case for you. Feel free to modify the tool according to your requirements.
+Please note that I created this tool primarily for my own use, as I was frustrated with having to copy and paste numerous code snippets into every new AI chat. If you often use the free tier from LLM websites this could be helpful.
 </sup>
 
 ## Description
 
-This File Merger is for ChatGPT and Other AIs. Its designed to quickly merge relevant files for interaction with AI systems like ChatGPT or Claude. It allows you to select a directory containing your files, choose which files to include, and generate a single output file with the merged content. This streamlines the process of providing code or text content to AI systems, making it easier to share and process the information.
+One of the tools I’ve been using privately for a long time on a regular basis, so I thought maybe others could find it useful too. 
 
-## Features
+This Single File Merger is for ChatGPT and Other AIs. Its designed to quickly merge relevant files for interaction with AI systems like ChatGPT or Claude. It allows you to select a directory containing your files, choose which files to include, and generate a single output file with the merged content. This streamlines the process of providing code or text content to AI systems, making it easier to share and process the information.
 
-- Graphical user interface for easy file and folder selection
-- Checkbox-based selection to include or exclude specific files and folders
-- Generates a single output file containing a filetree and the merged content of selected files
-- Displays a file tree structure at the beginning of the output file
-- Includes file paths and names for each merged file in the output
-- Quick access button to open the output folder directly
+## Features  
+- **Graphical Interface** – Select files and folders easily  
+- **Structured Output** – Preserves file paths and hierarchy  
+- **Quick Access** – Open the output folder with one click from the GUI
 
 ## Installation
 
