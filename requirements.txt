@@ -1,1 +1,410 @@
 PyQt5
+
+import os
+import subprocess
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QFileDialog, QTreeWidget, 
+                            QTreeWidgetItem, QPushButton, QVBoxLayout, QHBoxLayout, 
+                            QWidget, QMessageBox, QLabel, QSplitter, QStatusBar, 
+                            QToolBar, QAction, QFrame, QSizePolicy)
+from PyQt5.QtCore import Qt, QSize
+from PyQt5.QtGui import QIcon, QFont, QPixmap
+
+class FileMergerApp(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle('File Merger')
+        self.setGeometry(100, 100, 900, 700)
+        
+        # Set application icon
+        self.setWindowIcon(self.get_icon('merge'))
+        
+        # Create status bar
+        self.statusBar = QStatusBar()
+        self.setStatusBar(self.statusBar)
+        self.statusBar.showMessage('Ready')
+        
+        # Create toolbar
+        self.toolbar = QToolBar("Main Toolbar")
+        self.toolbar.setIconSize(QSize(24, 24))
+        self.toolbar.setMovable(False)
+        self.addToolBar(self.toolbar)
+        
+        # Add toolbar actions
+        browse_action = QAction(self.get_icon('folder-open'), "Browse", self)
+        browse_action.triggered.connect(self.browse_folder)
+        browse_action.setStatusTip("Select a folder to process")
+        self.toolbar.addAction(browse_action)
+        
+        self.toolbar.addSeparator()
+        
+        merge_action = QAction(self.get_icon('merge'), "Merge Files", self)
+        merge_action.triggered.connect(self.merge_files)
+        merge_action.setStatusTip("Merge selected files")
+        self.toolbar.addAction(merge_action)
+        
+        open_folder_action = QAction(self.get_icon('folder'), "Open Output", self)
+        open_folder_action.triggered.connect(self.open_output_folder)
+        open_folder_action.setStatusTip("Open output folder")
+        self.toolbar.addAction(open_folder_action)
+        
+        # Central widget
+        self.central_widget = QWidget()
+        self.setCentralWidget(self.central_widget)
+        
+        # Main layout
+        self.main_layout = QVBoxLayout(self.central_widget)
+        self.main_layout.setContentsMargins(15, 15, 15, 15)
+        self.main_layout.setSpacing(10)
+        
+        # Header
+        header_layout = QHBoxLayout()
+        self.header_label = QLabel("File Merger")
+        self.header_label.setFont(QFont("Segoe UI", 16, QFont.Bold))
+        header_layout.addWidget(self.header_label)
+        header_layout.addStretch()
+        self.main_layout.addLayout(header_layout)
+        
+        # Separator line
+        separator = QFrame()
+        separator.setFrameShape(QFrame.HLine)
+        separator.setFrameShadow(QFrame.Sunken)
+        self.main_layout.addWidget(separator)
+        
+        # Path display
+        self.path_layout = QHBoxLayout()
+        self.path_label = QLabel("No folder selected")
+        self.path_label.setFont(QFont("Segoe UI", 9))
+        self.path_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self.path_layout.addWidget(self.path_label)
+        self.main_layout.addLayout(self.path_layout)
+        
+        # Tree widget
+        self.tree = QTreeWidget()
+        self.tree.setHeaderLabels(['Files and Folders'])
+        self.tree.setFont(QFont("Segoe UI", 10))
+        self.tree.setAlternatingRowColors(True)
+        self.tree.setAnimated(True)
+        self.tree.setState(True)  # Enable tri-state checkboxes
+        self.tree.setIconSize(QSize(20, 20))
+        self.tree.itemChanged.connect(self.handle_item_changed)
+        self.tree.header().setFont(QFont("Segoe UI", 10, QFont.Bold))
+        self.main_layout.addWidget(self.tree)
+        
+        # Button layout
+        button_layout = QHBoxLayout()
+        button_layout.setSpacing(10)
+        
+        self.browse_button = QPushButton('Browse Folder')
+        self.browse_button.setIcon(self.get_icon('folder-open'))
+        self.browse_button.setFont(QFont("Segoe UI", 10))
+        self.browse_button.clicked.connect(self.browse_folder)
+        self.browse_button.setMinimumHeight(40)
+        button_layout.addWidget(self.browse_button)
+        
+        self.merge_button = QPushButton('Merge Selected Files')
+        self.merge_button.setIcon(self.get_icon('merge'))
+        self.merge_button.setFont(QFont("Segoe UI", 10))
+        self.merge_button.clicked.connect(self.merge_files)
+        self.merge_button.setMinimumHeight(40)
+        button_layout.addWidget(self.merge_button)
+        
+        self.open_folder_button = QPushButton('Open Output Folder')
+        self.open_folder_button.setIcon(self.get_icon('folder'))
+        self.open_folder_button.setFont(QFont("Segoe UI", 10))
+        self.open_folder_button.clicked.connect(self.open_output_folder)
+        self.open_folder_button.setMinimumHeight(40)
+        button_layout.addWidget(self.open_folder_button)
+        
+        self.main_layout.addLayout(button_layout)
+        
+        # Initialize variables
+        self.root_directory = None
+        self.output_folder = "outputFolder"
+        self.ignore_list = self.load_ignore_list()
+        self.updating = False  # Prevents recursive signal processing
+        
+        # Apply stylesheet
+        self.apply_stylesheet()
+
+    def get_icon(self, icon_name):
+        # This function would normally load icons from resources
+        # For simplicity, we'll use system icons where possible
+        if icon_name == 'folder-open':
+            return QApplication.style().standardIcon(QApplication.style().SP_DirOpenIcon)
+        elif icon_name == 'folder':
+            return QApplication.style().standardIcon(QApplication.style().SP_DirIcon)
+        elif icon_name == 'file':
+            return QApplication.style().standardIcon(QApplication.style().SP_FileIcon)
+        elif icon_name == 'merge':
+            return QApplication.style().standardIcon(QApplication.style().SP_DialogSaveButton)
+        else:
+            return QIcon()
+
+    def apply_stylesheet(self):
+        # Modern stylesheet
+        self.setStyleSheet("""
+            QMainWindow {
+                background-color: #f5f5f5;
+            }
+            QTreeWidget {
+                border: 1px solid #cccccc;
+                border-radius: 4px;
+                background-color: white;
+                alternate-background-color: #f9f9f9;
+            }
+            QTreeWidget::item {
+                padding: 4px;
+                border-bottom: 1px solid #eeeeee;
+            }
+            QTreeWidget::item:selected {
+                background-color: #0078d7;
+                color: white;
+            }
+            QPushButton {
+                background-color: #0078d7;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 8px 16px;
+            }
+            QPushButton:hover {
+                background-color: #0063b1;
+            }
+            QPushButton:pressed {
+                background-color: #004e8c;
+            }
+            QToolBar {
+                background-color: #f0f0f0;
+                border-bottom: 1px solid #cccccc;
+                spacing: 5px;
+                padding: 2px;
+            }
+            QStatusBar {
+                background-color: #f0f0f0;
+                color: #555555;
+            }
+            QLabel {
+                color: #333333;
+            }
+            QFrame[frameShape="4"] { /* HLine */
+                background-color: #cccccc;
+                max-height: 1px;
+            }
+        """)
+
+    def load_ignore_list(self):
+        ignore_list = []
+        if os.path.exists('ignore.txt'):
+            with open('ignore.txt', 'r', encoding='utf-8') as file:
+                ignore_list = [line.strip() for line in file if line.strip()]
+        return ignore_list
+
+    def browse_folder(self):
+        folder_selected = QFileDialog.getExistingDirectory(self, "Select Directory")
+        if folder_selected:
+            self.root_directory = folder_selected
+            self.path_label.setText(f"Selected: {folder_selected}")
+            self.statusBar.showMessage(f"Loaded directory: {folder_selected}")
+            self.populate_tree()
+
+    def populate_tree(self):
+        self.tree.clear()
+        self.statusBar.showMessage("Loading files...")
+        QApplication.processEvents()  # Update UI
+        self.add_items(self.tree.invisibleRootItem(), self.root_directory)
+        self.tree.expandToDepth(0)  # Expand first level
+        self.statusBar.showMessage("Files loaded successfully", 3000)
+
+    def should_ignore(self, path, item):
+        """Check if a path should be ignored based on ignore patterns"""
+        # Direct matches
+        if item in self.ignore_list:
+            return True
+            
+        # Pattern matches (for *.pyc etc)
+        for pattern in self.ignore_list:
+            if pattern.startswith('*'):
+                if item.endswith(pattern[1:]):
+                    return True
+        return False
+
+    def add_items(self, parent_item, path):
+        try:
+            for item in sorted(os.listdir(path)):
+                if self.should_ignore(path, item):
+                    continue
+                    
+                full_path = os.path.join(path, item)
+                tree_item = QTreeWidgetItem(parent_item, [item])
+                tree_item.setCheckState(0, Qt.Checked)
+                tree_item.setData(0, Qt.UserRole, full_path)
+                
+                if os.path.isdir(full_path):
+                    tree_item.setIcon(0, self.get_icon('folder'))
+                    self.add_items(tree_item, full_path)
+                else:
+                    tree_item.setIcon(0, self.get_icon('file'))
+        except PermissionError:
+            # Skip directories we don't have permission to read
+            pass
+        except Exception as e:
+            self.statusBar.showMessage(f"Error reading {path}: {str(e)}", 3000)
+
+    def handle_item_changed(self, item, column):
+        if self.updating:
+            return
+        
+        self.updating = True
+        self.tree.blockSignals(True)  # Block signals during update
+        
+        # Update children based on parent status
+        if item.checkState(column) == Qt.Checked:
+            self.check_all_children(item, Qt.Checked)
+        elif item.checkState(column) == Qt.Unchecked:
+            self.check_all_children(item, Qt.Unchecked)
+        
+        # Update parent status based on children status
+        self.update_parent_state(item.parent())
+        
+        self.tree.blockSignals(False)  # Re-enable signals
+        self.updating = False
+    
+    def check_all_children(self, item, check_state):
+        for i in range(item.childCount()):
+            child = item.child(i)
+            child.setCheckState(0, check_state)
+            self.check_all_children(child, check_state)
+
+    def update_parent_state(self, parent):
+        if parent is None:
+            return
+        
+        checked_count = 0
+        partially_checked_count = 0
+        total_count = parent.childCount()
+        
+        for i in range(total_count):
+            child_state = parent.child(i).checkState(0)
+            if child_state == Qt.Checked:
+                checked_count += 1
+            elif child_state == Qt.PartiallyChecked:
+                partially_checked_count += 1
+        
+        if checked_count == total_count:
+            parent.setCheckState(0, Qt.Checked)
+        elif checked_count == 0 and partially_checked_count == 0:
+            parent.setCheckState(0, Qt.Unchecked)
+        else:
+            parent.setCheckState(0, Qt.PartiallyChecked)
+        
+        # Recursively update parent's parent
+        self.update_parent_state(parent.parent())
+
+    def merge_files(self):
+        if not self.root_directory:
+            QMessageBox.warning(self, "Warning", "Please select a folder first")
+            return
+            
+        self.statusBar.showMessage("Merging files...")
+        QApplication.processEvents()  # Update UI
+        
+        if not os.path.exists(self.output_folder):
+            os.makedirs(self.output_folder)
+        merge_filename = os.path.join(self.output_folder, 'mergeOutput.txt')
+        try:
+            with open(merge_filename, 'w', encoding='utf-8') as merge_file:
+                # Write file tree to output file
+                merge_file.write("File Tree:\n")
+                self.write_tree_summary(self.tree.invisibleRootItem(), merge_file)
+                merge_file.write("\n\nMerged Files:\n")
+                # Write merged files
+                self.write_files(self.tree.invisibleRootItem(), merge_file)
+            
+            self.statusBar.showMessage(f"Files merged successfully into {merge_filename}", 5000)
+            QMessageBox.information(self, "Success", f"Merged files into {merge_filename}")
+            
+            # Open the merged file automatically
+            if os.name == 'nt':  # Windows
+                os.startfile(merge_filename)
+            elif os.name == 'posix':  # macOS, Linux
+                subprocess.Popen(['open', merge_filename])
+        except Exception as e:
+            self.statusBar.showMessage(f"Error: {str(e)}", 5000)
+            QMessageBox.critical(self, "Error", f"An error occurred: {e}")
+
+    def write_tree_summary(self, tree_item, merge_file, prefix="", is_last=True):
+        for index in range(tree_item.childCount()):
+            child = tree_item.child(index)
+            full_path = child.data(0, Qt.UserRole)
+            is_last_child = index == tree_item.childCount() - 1
+            check_state = child.checkState(0)
+
+            if os.path.isdir(full_path):
+                folder_included = check_state != Qt.Unchecked
+                if folder_included:
+                    merge_file.write(f"{prefix}{'└── ' if is_last_child else '├── '}{os.path.basename(full_path)}\n")
+                    new_prefix = prefix + ("    " if is_last_child else "│   ")
+                    self.write_tree_summary(child, merge_file, new_prefix, is_last_child)
+                else:
+                    merge_file.write(f"{prefix}{'└── ' if is_last_child else '├── '}{os.path.basename(full_path)} (not included)\n")
+            else:
+                if check_state == Qt.Checked:
+                                        merge_file.write(f"{prefix}{'└── ' if is_last_child else '├── '}{os.path.basename(full_path)}\n")
+                else:
+                    merge_file.write(f"{prefix}{'└── ' if is_last_child else '├── '}{os.path.basename(full_path)} (not included)\n")
+
+    def write_files(self, tree_item, merge_file):
+        for index in range(tree_item.childCount()):
+            child = tree_item.child(index)
+            full_path = child.data(0, Qt.UserRole)
+            check_state = child.checkState(0)
+            
+            if check_state == Qt.Checked and os.path.isfile(full_path):
+                try:
+                    with open(full_path, 'r', encoding='utf-8') as f:
+                        merge_file.write(f"\n{'='*80}\n")
+                        merge_file.write(f"File: {os.path.basename(full_path)}\n")
+                        merge_file.write(f"Path: {os.path.relpath(full_path, self.root_directory)}\n")
+                        merge_file.write(f"{'='*80}\n\n")
+                        merge_file.write(f.read() + "\n")
+                except Exception as e:
+                    merge_file.write(f"\n{'='*80}\n")
+                    merge_file.write(f"File: {os.path.basename(full_path)}\n")
+                    merge_file.write(f"Path: {os.path.relpath(full_path, self.root_directory)}\n")
+                    merge_file.write(f"{'='*80}\n\n")
+                    merge_file.write(f"Could not read file: {str(e)}\n")
+            elif os.path.isdir(full_path) and check_state != Qt.Unchecked:
+                # Process both fully and partially selected folders
+                self.write_files(child, merge_file)
+
+    def open_output_folder(self):
+        if not os.path.exists(self.output_folder):
+            os.makedirs(self.output_folder)
+            
+        path = os.path.abspath(self.output_folder)
+        self.statusBar.showMessage(f"Opening output folder: {path}", 3000)
+        
+        try:
+            if os.name == 'nt':  # Windows
+                os.startfile(path)
+            elif os.name == 'posix':  # macOS, Linux
+                subprocess.Popen(['open', path])
+        except Exception as e:
+            self.statusBar.showMessage(f"Error opening folder: {str(e)}", 5000)
+            QMessageBox.warning(self, "Error", f"Could not open output folder: {str(e)}")
+
+if __name__ == "__main__":
+    import sys
+    
+    # Enable high DPI scaling
+    QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
+    QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
+    
+    app = QApplication(sys.argv)
+    app.setStyle('Fusion')  # Use Fusion style for consistent look across platforms
+    
+    window = FileMergerApp()
+    window.show()
+    
+    sys.exit(app.exec_())
+
