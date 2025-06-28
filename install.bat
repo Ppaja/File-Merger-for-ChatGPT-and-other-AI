@@ -1,6 +1,5 @@
 @echo off
 
-:: Überprüfung, ob Python installiert ist
 python --version
 if %errorlevel% neq 0 (
     echo Python not found. Please install Python.
@@ -10,7 +9,15 @@ if %errorlevel% neq 0 (
     echo Python found.
 )
 
-:: Installieren der erforderlichen Pakete aus requirements.txt
+if not exist venv (
+    echo Virtuelle Umgebung nicht gefunden. Erstelle neue venv...
+    python -m venv venv
+    echo Virtuelle Umgebung erstellt!
+)
+echo Aktiviere virtuelle Umgebung...
+call venv\Scripts\activate
+echo Virtuelle Umgebung aktiviert!
+
 pip install -r requirements.txt
 @echo requirements installed
 
