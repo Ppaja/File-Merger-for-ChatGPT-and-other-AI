@@ -42,14 +42,80 @@ class TreeLoaderThread(QThread):
         
     def run(self):
         try:
-            self.load_tree_data()
+            # MODIFIED: Call the new, more performant single-pass method
+            self.load_tree_data_single_pass()
         except Exception as e:
             logging.error(f"Tree loading error: {str(e)}", exc_info=True)
-            self.loading_finished.emit(False)
-    
+            self.loading_finished.emit(False)    
     def cancel(self):
         self.should_cancel = True
-    
+
+    def load_tree_data_single_pass(self):
+        """Load all file tree data in a single pass for better performance."""
+        self.status_updated.emit("Scanning directory structure...")
+        
+        tree_data = []
+        chunk_size = 100  # Emit data every 100 items for responsive UI
+        processed_items = 0
+        
+        try:
+            for root, dirs, files in os.walk(self.root_directory, topdown=True):
+                if self.should_cancel:
+                    break
+                
+                # Filter directories in-place to prevent os.walk from traversing them
+                dirs[:] = [d for d in dirs if not self.should_ignore_path(os.path.join(root, d))]
+                
+                # Process directories
+                for dir_name in sorted(dirs, key=str.lower):
+                    if self.should_cancel: break
+                    full_path = os.path.join(root, dir_name)
+                    item_data = {
+                        'name': dir_name, 'full_path': full_path, 'is_dir': True,
+                        'size': 0, 'modified': datetime.fromtimestamp(os.stat(full_path).st_mtime),
+                        'parent_path': root
+                    }
+                    tree_data.append(item_data)
+                
+                # Process files
+                for file_name in sorted(files, key=str.lower):
+                    if self.should_cancel: break
+                    full_path = os.path.join(root, file_name)
+                    if self.should_ignore_path(full_path):
+                        continue
+                    
+                    try:
+                        stat_info = os.stat(full_path)
+                        item_data = {
+                            'name': file_name, 'full_path': full_path, 'is_dir': False,
+                            'size': stat_info.st_size, 'modified': datetime.fromtimestamp(stat_info.st_mtime),
+                            'parent_path': root
+                        }
+                        tree_data.append(item_data)
+                    except (OSError, PermissionError):
+                        continue
+
+                processed_items += len(dirs) + len(files)
+                self.status_updated.emit(f"Found {processed_items} items...")
+
+                # Emit chunk if we have enough items
+                if len(tree_data) >= chunk_size:
+                    self.tree_data_chunk.emit(tree_data.copy())
+                    tree_data.clear()
+
+            # Emit any remaining data
+            if tree_data and not self.should_cancel:
+                self.tree_data_chunk.emit(tree_data)
+            
+            if not self.should_cancel:
+                # Signal that all data has been sent and the tree can be finalized
+                self.tree_loaded.emit([]) # The argument is not used, it's just a trigger
+                self.loading_finished.emit(True)
+            
+        except Exception as e:
+            logging.error(f"Error loading tree data: {str(e)}")
+            self.loading_finished.emit(False)
+
     def load_tree_data(self):
         """Load all file tree data in background with progressive updates"""
         self.status_updated.emit("Scanning directory structure...")
@@ -991,20 +1057,25 @@ class FileMergerApp(QMainWindow):
 
     def load_ignore_list(self):
         """Load ignore patterns from file"""
+        # MODIFIED: Strip trailing slashes from default patterns
         default_ignores = [
-            '__pycache__', '*.pyc', '*.pyo', '*.pyd',
-            '.git', '.svn', '.hg', '.bzr',
-            'node_modules', '.npm', '.yarn',
-            '.DS_Store', 'Thumbs.db', 'desktop.ini',
-            '*.log', '*.tmp', '*.temp',
-            '.vscode', '.idea', '*.swp', '*.swo'
+            p.strip().strip('/\\') for p in [
+                '__pycache__', '*.pyc', '*.pyo', '*.pyd',
+                '.git', '.svn', '.hg', '.bzr',
+                'node_modules', '.npm', '.yarn',
+                '.DS_Store', 'Thumbs.db', 'desktop.ini',
+                '*.log', '*.tmp', '*.temp',
+                '.vscode', '.idea', '*.swp', '*.swo',
+                'venv', 'dist', 'build', 'env' # MODIFIED: Simplified common folder names
+            ]
         ]
         
         ignore_list = default_ignores.copy()
         if os.path.exists('ignore.txt'):
             try:
                 with open('ignore.txt', 'r', encoding='utf-8') as file:
-                    custom_ignores = [line.strip() for line in file if line.strip()]
+                    # MODIFIED: Also strip trailing slashes from user-defined patterns
+                    custom_ignores = [line.strip().strip('/\\') for line in file if line.strip()]
                     ignore_list.extend(custom_ignores)
             except Exception as e:
                 logging.warning(f"Could not load ignore.txt: {e}")
@@ -1047,30 +1118,26 @@ class FileMergerApp(QMainWindow):
             self.tree_loader_thread.cancel()
             self.tree_loader_thread.wait(1000)
         
-        # Clear current tree
         self.tree.clear()
+        self.items_by_path = {}
+        self.pending_items = []
         
-        # Initialize tree building cache
-        self.items_by_path = {}  # Cache for parent items
-        self.pending_items = []  # Items waiting for their parents
-        
-        # Show progress
+        # MODIFIED: Set progress bar to indeterminate (busy) mode
         self.progress_bar.setVisible(True)
-        self.progress_bar.setValue(0)
+        self.progress_bar.setRange(0, 0) # This creates the busy/scrolling effect
         self.cancel_button.setVisible(True)
         self.browse_button.setEnabled(False)
         
-        # Get current ignore patterns and settings
+        # MODIFIED: Strip trailing slashes from patterns in the GUI text box
         current_ignores = self.ignore_text.toPlainText().strip().split('\n')
-        current_ignores = [p.strip() for p in current_ignores if p.strip()]
+        current_ignores = [p.strip().strip('/\\') for p in current_ignores if p.strip()]
         include_hidden = self.include_hidden_check.isChecked()
         
-        # Start loading thread
         self.tree_loader_thread = TreeLoaderThread(self.root_directory, current_ignores, include_hidden)
-        self.tree_loader_thread.progress_updated.connect(self.progress_bar.setValue)
+        # MODIFIED: progress_updated signal is no longer used
         self.tree_loader_thread.status_updated.connect(self.statusBar.showMessage)
         self.tree_loader_thread.tree_data_chunk.connect(self.update_tree_data)
-        self.tree_loader_thread.tree_loaded.connect(self.finalize_tree_building)
+        self.tree_loader_thread.tree_loaded.connect(self.finalize_tree_building) # This signal is kept to trigger finalization
         self.tree_loader_thread.loading_finished.connect(self.on_tree_loading_finished)
         self.tree_loader_thread.start()
 
@@ -1164,6 +1231,9 @@ class FileMergerApp(QMainWindow):
 
     def on_tree_loading_finished(self, success):
         """Handle tree loading completion"""
+        # MODIFIED: Reset progress bar from indeterminate mode
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
         self.progress_bar.setVisible(False)
         self.cancel_button.setVisible(False)
         self.browse_button.setEnabled(True)
@@ -1174,7 +1244,7 @@ class FileMergerApp(QMainWindow):
         else:
             self.statusBar.showMessage("Error loading files", 5000)
             QMessageBox.warning(self, "Error", "Failed to load directory. Check the log for details.")
-
+            
     def cancel_tree_loading(self):
         """Cancel current tree loading"""
         if self.tree_loader_thread and self.tree_loader_thread.isRunning():
