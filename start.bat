@@ -1,6 +1,6 @@
 @echo off
-title Immersion Hub
-echo Starte Immersion Hub...
+title File Merger
+echo Starte File Merger...
 :: Aktiviere die virtuelle Umgebung und starte das Hauptskript
 call venv\Scripts\activate.bat
 python extractor.py
