@@ -186,10 +186,12 @@ class FileProcessor(QThread):
         output_folder = self.output_settings.get('output_folder', 'outputFolder')
         if not os.path.exists(output_folder):
             os.makedirs(output_folder)
-            
+        
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         output_format = self.output_settings.get('format', 'txt')
-        merge_filename = os.path.join(output_folder, f'merged_{timestamp}.{output_format}')
+        # Use project folder name for output file
+        project_folder_name = os.path.basename(os.path.normpath(self.root_directory))
+        merge_filename = os.path.join(output_folder, f'{project_folder_name}_merged_{timestamp}.{output_format}')
         
         try:
             total_files = self._count_selected_files(self.tree_widget.invisibleRootItem())
@@ -246,12 +248,34 @@ class FileProcessor(QThread):
             file.write(f"# File Merge Report\n\n")
             file.write(f"**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
             file.write(f"**Source Directory:** `{self.root_directory}`\n\n")
+            # LLM instructions section
+            file.write("## Hinweise für KI/LLM-Kontext\n\n")
+            file.write(
+                "Dies ist ein generierter Projektkontext für Large Language Models (LLMs).\n"
+                "Die folgende Dateistruktur und die enthaltenen Dateien dienen dir als Kontext.\n\n"
+                "**Legende:**\n"
+                "- `✓` = Diese Datei/Ordner ist im Merge enthalten und relevant.\n"
+                "- `✗` = Diese Datei/Ordner existiert, wurde aber vom Nutzer als irrelevant abgewählt und ist nicht im Merge enthalten.\n"
+                "- `◐` = Dieser Ordner ist teilweise ausgewählt (nur einige Unterelemente sind enthalten).\n\n"
+            )
         else:
             file.write("FILE MERGE REPORT\n")
             file.write("="*80 + "\n\n")
             file.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
             file.write(f"Source Directory: {self.root_directory}\n")
             file.write(f"Output Settings: {self.output_settings}\n\n")
+            # LLM instructions section
+            file.write("="*80 + "\n")
+            file.write("HINWEISE FÜR KI/LLM-KONTEXT\n")
+            file.write("="*80 + "\n")
+            file.write(
+                "Dies ist ein generierter Projektkontext für Large Language Models (LLMs).\n"
+                "Die folgende Dateistruktur und die enthaltenen Dateien dienen als Kontext für KI-Modelle.\n\n"
+                "Legende:\n"
+                "  ✓ = Diese Datei/Ordner ist im Merge enthalten und relevant.\n"
+                "  ✗ = Diese Datei/Ordner existiert, wurde aber vom Nutzer als irrelevant abgewählt und ist nicht im Merge enthalten.\n"
+                "  ◐ = Dieser Ordner ist teilweise ausgewählt (nur einige Unterelemente sind enthalten).\n\n"
+            )
     
     def _get_section_header(self, title: str, format_type: str, is_content: bool = False) -> str:
         """Get section header based on format"""
@@ -1733,6 +1757,31 @@ class FileMergerApp(QMainWindow):
                     json.dump(project_data, f, indent=2)
                 
                 self.statusBar.showMessage(f"Project saved: {os.path.basename(filename)}", 3000)
+
+                # --- NEU: Projekt in projects.json eintragen ---
+                projects_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'projects.json')
+                try:
+                    if os.path.exists(projects_path):
+                        with open(projects_path, 'r', encoding='utf-8') as pf:
+                            projects = json.load(pf)
+                            if not isinstance(projects, list):
+                                projects = []
+                    else:
+                        projects = []
+                except Exception:
+                    projects = []
+                # Entferne ggf. doppelte Einträge
+                projects = [p for p in projects if p.get('path') != filename]
+                # Füge neuen Eintrag oben ein
+                projects.insert(0, {
+                    'path': filename,
+                    'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    'name': os.path.splitext(os.path.basename(filename))[0]
+                })
+                # Schreibe zurück
+                with open(projects_path, 'w', encoding='utf-8') as pf:
+                    json.dump(projects, pf, indent=2)
+                # --- ENDE NEU ---
                 
             except Exception as e:
                 logging.error(f"Error saving project: {e}")
@@ -1740,39 +1789,84 @@ class FileMergerApp(QMainWindow):
 
     def open_project(self):
         """Open saved project configuration"""
-        filename, _ = QFileDialog.getOpenFileName(
-            self, "Open Project", "", "JSON Files (*.json)"
-        )
-        
-        if filename:
+        import functools
+        projects_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'projects.json')
+        projects = []
+        if os.path.exists(projects_path):
             try:
-                with open(filename, 'r', encoding='utf-8') as f:
-                    project_data = json.load(f)
-                
-                # Restore settings
-                self.root_directory = project_data.get('root_directory')
-                self.output_folder_edit.setText(project_data.get('output_folder', 'outputFolder'))
-                self.format_combo.setCurrentText(project_data.get('output_format', 'txt'))
-                self.max_size_spin.setValue(project_data.get('max_file_size', 10))
-                self.include_binary_check.setChecked(project_data.get('include_binary', False))
-                self.include_hidden_check.setChecked(project_data.get('include_hidden', False))
-                
-                ignore_patterns = project_data.get('ignore_patterns', [])
-                self.ignore_text.setPlainText('\n'.join(ignore_patterns))
-                
-                # Reload tree
-                if self.root_directory and os.path.exists(self.root_directory):
-                    self.path_label.setText(f"📁 {self.root_directory}")
-                    self.start_tree_loading()
-                    
-                    # Store selection for later restoration
-                    self._pending_selection = project_data.get('selected_files', [])
-                
-                self.statusBar.showMessage(f"Project loaded: {os.path.basename(filename)}", 3000)
-                
-            except Exception as e:
-                logging.error(f"Error opening project: {e}")
-                QMessageBox.critical(self, "Error", f"Could not open project: {e}")
+                with open(projects_path, 'r', encoding='utf-8') as pf:
+                    projects = json.load(pf)
+                    if not isinstance(projects, list):
+                        projects = []
+            except Exception:
+                projects = []
+        
+        # Dialog für Projektauswahl
+        class ProjectListDialog(QDialog):
+            def __init__(self, projects, parent=None):
+                super().__init__(parent)
+                self.setWindowTitle("Projekt öffnen")
+                self.setModal(True)
+                self.selected_path = None
+                layout = QVBoxLayout(self)
+                label = QLabel("Wähle ein gespeichertes Projekt aus der Liste oder öffne eine Projektdatei:")
+                layout.addWidget(label)
+                self.list = QListWidget()
+                for proj in projects:
+                    item = QListWidgetItem()
+                    name = proj.get('name') or os.path.basename(proj.get('path',''))
+                    ts = proj.get('timestamp','')
+                    item.setText(f"{name} ({ts})")
+                    item.setData(Qt.UserRole, proj.get('path'))
+                    self.list.addItem(item)
+                self.list.itemDoubleClicked.connect(self.accept)
+                layout.addWidget(self.list)
+                btns = QDialogButtonBox(QDialogButtonBox.Open | QDialogButtonBox.Cancel)
+                btns.accepted.connect(self.accept)
+                btns.rejected.connect(self.reject)
+                layout.addWidget(btns)
+                # Extra Button für Datei suchen
+                self.search_btn = QPushButton("Projektdatei suchen ...")
+                self.search_btn.clicked.connect(self.search_file)
+                layout.addWidget(self.search_btn)
+            def accept(self):
+                item = self.list.currentItem()
+                if item:
+                    self.selected_path = item.data(Qt.UserRole)
+                super().accept()
+            def search_file(self):
+                filename, _ = QFileDialog.getOpenFileName(self, "Projektdatei öffnen", "", "JSON Files (*.json)")
+                if filename:
+                    self.selected_path = filename
+                    self.done(QDialog.Accepted)
+        # Dialog anzeigen
+        dlg = ProjectListDialog(projects, self)
+        if dlg.exec_() == QDialog.Accepted and dlg.selected_path:
+            filename = dlg.selected_path
+        else:
+            return
+        try:
+            with open(filename, 'r', encoding='utf-8') as f:
+                project_data = json.load(f)
+            # Restore settings
+            self.root_directory = project_data.get('root_directory')
+            self.output_folder_edit.setText(project_data.get('output_folder', 'outputFolder'))
+            self.format_combo.setCurrentText(project_data.get('output_format', 'txt'))
+            self.max_size_spin.setValue(project_data.get('max_file_size', 10))
+            self.include_binary_check.setChecked(project_data.get('include_binary', False))
+            self.include_hidden_check.setChecked(project_data.get('include_hidden', False))
+            ignore_patterns = project_data.get('ignore_patterns', [])
+            self.ignore_text.setPlainText('\n'.join(ignore_patterns))
+            # Reload tree
+            if self.root_directory and os.path.exists(self.root_directory):
+                self.path_label.setText(f"📁 {self.root_directory}")
+                self.start_tree_loading()
+                # Store selection for later restoration
+                self._pending_selection = project_data.get('selected_files', [])
+            self.statusBar.showMessage(f"Project loaded: {os.path.basename(filename)}", 3000)
+        except Exception as e:
+            logging.error(f"Error opening project: {e}")
+            QMessageBox.critical(self, "Error", f"Could not open project: {e}")
 
     def get_selected_files(self) -> List[str]:
         """Get list of selected file paths"""
@@ -1824,7 +1918,6 @@ class FileMergerApp(QMainWindow):
         <li>F5 - Refresh Tree</li>
         </ul>
         
-        <p><i>Built with PyQt5 for cross-platform compatibility</i></p>
         <p><i>Version 2.1 - Enhanced Edition</i></p>
         """
         
