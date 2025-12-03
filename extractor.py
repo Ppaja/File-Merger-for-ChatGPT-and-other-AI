@@ -191,7 +191,9 @@ class FileProcessor(QThread):
         output_format = self.output_settings.get('format', 'txt')
         # Use project folder name for output file
         project_folder_name = os.path.basename(os.path.normpath(self.root_directory))
-        merge_filename = os.path.join(output_folder, f'{project_folder_name}_merged_{timestamp}.{output_format}')
+        
+        prefix = "backup_" if self.output_settings.get('backup_mode', False) else ""
+        merge_filename = os.path.join(output_folder, f'{prefix}{project_folder_name}_merged_{timestamp}.{output_format}')
         
         try:
             total_files = self._count_selected_files(self.tree_widget.invisibleRootItem())
@@ -576,24 +578,27 @@ class RestoreDialog(QDialog):
         self.output_directory = None
         self.init_ui()
         self.load_merge_files()
-        
+    
     def init_ui(self):
-        """Initialize the restoration dialog UI"""
-        self.setWindowTitle("Restore Files from Merge")
+        """Initialize the dialog UI"""
+        self.setWindowTitle("Restore from Merge File")
         self.setModal(True)
-        self.resize(800, 600)
+        self.resize(600, 400)
         
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
         
-        # Header
-        header = QLabel("Select a merge file to restore:")
-        header.setFont(QFont("Segoe UI", 12))
-        layout.addWidget(header)
+        # Header label
+        label = QLabel("Select a merge file to restore:")
+        label.setStyleSheet("font-weight: bold; font-size: 14px;")
+        layout.addWidget(label)
         
         # File list
         self.file_list = QListWidget()
         self.file_list.setAlternatingRowColors(True)
         self.file_list.itemClicked.connect(self.on_file_selected)
+        self.file_list.itemDoubleClicked.connect(self.accept)
         layout.addWidget(self.file_list)
         
         # Output directory selection
@@ -795,6 +800,7 @@ class FileMergerApp(QMainWindow):
         self.progress_bar.setVisible(False)
         self.progress_bar.setMaximumWidth(200)
         self.statusBar.addPermanentWidget(self.progress_bar)
+
         
         # Cancel button
         self.cancel_button = QPushButton("Cancel")
@@ -804,7 +810,7 @@ class FileMergerApp(QMainWindow):
         self.statusBar.addPermanentWidget(self.cancel_button)
         
         self.statusBar.showMessage('Ready')
-        
+
     def create_toolbar(self):
         """Create main toolbar"""
         self.toolbar = QToolBar("Main Toolbar")
@@ -812,12 +818,22 @@ class FileMergerApp(QMainWindow):
         self.toolbar.setMovable(False)
         self.addToolBar(self.toolbar)
         
+        # Get standard icons
+        style = QApplication.style()
+        icon_expand = style.standardIcon(style.SP_ArrowDown)
+        icon_collapse = style.standardIcon(style.SP_ArrowUp)
+        icon_select_all = style.standardIcon(style.SP_DialogApplyButton)
+        icon_select_none = style.standardIcon(style.SP_DialogCancelButton)
+        
         toolbar_actions = [
             (self.get_icon('folder-open'), "Browse", self.browse_folder, "Select a folder to process"),
-            (None, None, None, None),  # Separator
-            ("Select All", "Select All", self.select_all_files, "Select all files"),
-            ("Select None", "Select None", self.select_no_files, "Deselect all files"),
-            (None, None, None, None),  # Separator
+            (None, None, None, None),
+            (icon_expand, "Expand All", self.expand_all_files, "Expand all folders"),
+            (icon_collapse, "Collapse All", self.collapse_all_files, "Collapse all folders"),
+            (None, None, None, None),
+            (icon_select_all, "Select All", self.select_all_files, "Select all files"),
+            (icon_select_none, "Select None", self.select_no_files, "Deselect all files"),
+            (None, None, None, None),
             (self.get_icon('merge'), "Merge Files", self.merge_files, "Merge selected files"),
             (self.get_icon('folder'), "Open Output", self.open_output_folder, "Open output folder"),
         ]
@@ -833,118 +849,111 @@ class FileMergerApp(QMainWindow):
                 action.triggered.connect(action_data[2])
                 action.setStatusTip(action_data[3])
                 self.toolbar.addAction(action)
-        
+
     def create_main_widget(self):
         """Create main widget with tabs"""
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
         
-        # Create tab widget
         self.tab_widget = QTabWidget()
         
-        # Files tab
         self.files_tab = self.create_files_tab()
-        self.tab_widget.addTab(self.files_tab, "📁 Files")
+        self.tab_widget.addTab(self.files_tab, "Files")
         
-        # Settings tab
         self.settings_tab = self.create_settings_tab()
-        self.tab_widget.addTab(self.settings_tab, "⚙️ Settings")
+        self.tab_widget.addTab(self.settings_tab, "Settings")
         
-        # Preview tab
         self.preview_tab = self.create_preview_tab()
-        self.tab_widget.addTab(self.preview_tab, "👁️ Preview")
+        self.tab_widget.addTab(self.preview_tab, "Preview")
         
-        # Main layout
         main_layout = QVBoxLayout(self.central_widget)
         main_layout.addWidget(self.tab_widget)
-        
+
     def create_files_tab(self):
         """Create files tab content"""
         widget = QWidget()
         layout = QVBoxLayout(widget)
-        layout.setContentsMargins(15, 15, 15, 15)
-        layout.setSpacing(10)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(20)
         
-        # Header
-        header_layout = QHBoxLayout()
-        header_label = QLabel("File Merger Pro")
-        header_label.setFont(QFont("Segoe UI", 16, QFont.Bold))
-        header_layout.addWidget(header_label)
-        header_layout.addStretch()
-        layout.addLayout(header_layout)
+        # Top Controls
+        top_controls = QHBoxLayout()
         
-        # Path display
         self.path_label = QLabel("No folder selected")
-        self.path_label.setFont(QFont("Segoe UI", 9))
-        self.path_label.setStyleSheet("color: #666; padding: 5px; background: #f0f0f0; border-radius: 3px;")
-        layout.addWidget(self.path_label)
+        self.path_label.setFont(QFont("Segoe UI", 10))
+        self.path_label.setStyleSheet("color: #e0e0e0; padding: 8px 12px; background: #3c3f41; border: 1px solid #2b2b2b; border-radius: 4px;")
+        top_controls.addWidget(self.path_label, 1)
         
-        # Search box
-        search_layout = QHBoxLayout()
-        search_label = QLabel("Search:")
         self.search_box = QLineEdit()
-        self.search_box.setPlaceholderText("Filter files and folders...")
+        self.search_box.setPlaceholderText("Search files...")
+        self.search_box.setMinimumWidth(250)
         self.search_box.textChanged.connect(self.filter_tree)
-        search_layout.addWidget(search_label)
-        search_layout.addWidget(self.search_box)
-        layout.addLayout(search_layout)
+        top_controls.addWidget(self.search_box)
         
-        # Tree widget
+        layout.addLayout(top_controls)
+        
+        # Tree
         self.tree = QTreeWidget()
-        self.tree.setHeaderLabels(['Files and Folders', 'Size', 'Modified'])
+        self.tree.setHeaderLabels(['Name', 'Size', 'Modified'])
         self.tree.setFont(QFont("Segoe UI", 10))
         self.tree.setAlternatingRowColors(True)
         self.tree.setAnimated(True)
         self.tree.setRootIsDecorated(True)
         self.tree.setIconSize(QSize(20, 20))
+        self.tree.setColumnWidth(0, 400)
         self.tree.itemChanged.connect(self.handle_item_changed)
         self.tree.itemDoubleClicked.connect(self.preview_file)
         layout.addWidget(self.tree)
         
-        # Button layout
+        # Buttons
         button_layout = QHBoxLayout()
-        button_layout.setSpacing(10)
+        button_layout.setSpacing(15)
         
-        self.browse_button = QPushButton('📁 Browse Folder')
-        self.browse_button.setFont(QFont("Segoe UI", 10))
+        self.browse_button = QPushButton('Browse Folder')
+        self.browse_button.setIcon(self.get_icon('folder-open'))
+        self.browse_button.setMinimumHeight(45)
+        self.browse_button.setCursor(Qt.PointingHandCursor)
         self.browse_button.clicked.connect(self.browse_folder)
-        self.browse_button.setMinimumHeight(40)
         button_layout.addWidget(self.browse_button)
         
-        self.merge_button = QPushButton('🔀 Merge Selected Files')
-        self.merge_button.setFont(QFont("Segoe UI", 10))
+        self.merge_button = QPushButton('Merge Selected')
+        self.merge_button.setIcon(self.get_icon('merge'))
+        self.merge_button.setMinimumHeight(45)
+        self.merge_button.setCursor(Qt.PointingHandCursor)
         self.merge_button.clicked.connect(self.merge_files)
-        self.merge_button.setMinimumHeight(40)
+        self.merge_button.setStyleSheet("QPushButton { background-color: #28a745; font-weight: bold; font-size: 14px; } QPushButton:hover { background-color: #218838; }")
         button_layout.addWidget(self.merge_button)
         
-        self.open_folder_button = QPushButton('📂 Open Output Folder')
-        self.open_folder_button.setFont(QFont("Segoe UI", 10))
+        self.backup_check = QCheckBox("Backup?")
+        self.backup_check.setToolTip("If checked, output filename will start with 'backup_'")
+        button_layout.addWidget(self.backup_check)
+        
+        self.open_folder_button = QPushButton('Open Output')
+        self.open_folder_button.setIcon(self.get_icon('folder'))
+        self.open_folder_button.setMinimumHeight(45)
+        self.open_folder_button.setCursor(Qt.PointingHandCursor)
         self.open_folder_button.clicked.connect(self.open_output_folder)
-        self.open_folder_button.setMinimumHeight(40)
         button_layout.addWidget(self.open_folder_button)
         
         layout.addLayout(button_layout)
         return widget
-        
+
     def create_settings_tab(self):
         """Create settings tab content"""
         widget = QWidget()
         layout = QVBoxLayout(widget)
-        layout.setContentsMargins(15, 15, 15, 15)
-        layout.setSpacing(15)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(20)
         
-        # Output Settings Group
         output_group = QGroupBox("Output Settings")
         output_layout = QGridLayout(output_group)
         
-        # Output format
         output_layout.addWidget(QLabel("Output Format:"), 0, 0)
         self.format_combo = QComboBox()
         self.format_combo.addItems(["txt", "md"])
         self.format_combo.setCurrentText("txt")
         output_layout.addWidget(self.format_combo, 0, 1)
         
-        # Output folder
         output_layout.addWidget(QLabel("Output Folder:"), 1, 0)
         folder_layout = QHBoxLayout()
         self.output_folder_edit = QLineEdit("outputFolder")
@@ -956,11 +965,9 @@ class FileMergerApp(QMainWindow):
         
         layout.addWidget(output_group)
         
-        # File Processing Group
         processing_group = QGroupBox("File Processing")
         processing_layout = QGridLayout(processing_group)
         
-        # Max file size
         processing_layout.addWidget(QLabel("Max File Size (MB):"), 0, 0)
         self.max_size_spin = QSpinBox()
         self.max_size_spin.setRange(1, 1000)
@@ -968,17 +975,14 @@ class FileMergerApp(QMainWindow):
         self.max_size_spin.setSuffix(" MB")
         processing_layout.addWidget(self.max_size_spin, 0, 1)
         
-        # Include binary files
         self.include_binary_check = QCheckBox("Include binary files (as references)")
         processing_layout.addWidget(self.include_binary_check, 1, 0, 1, 2)
         
-        # Include hidden files
         self.include_hidden_check = QCheckBox("Include hidden files")
         processing_layout.addWidget(self.include_hidden_check, 2, 0, 1, 2)
         
         layout.addWidget(processing_group)
         
-        # Ignore Patterns Group
         ignore_group = QGroupBox("Ignore Patterns")
         ignore_layout = QVBoxLayout(ignore_group)
         
@@ -988,23 +992,19 @@ class FileMergerApp(QMainWindow):
         ignore_layout.addWidget(self.ignore_text)
         
         ignore_help = QLabel("Enter patterns to ignore (one per line). Supports wildcards like *.pyc, __pycache__, etc.")
-        ignore_help.setStyleSheet("color: #666; font-size: 11px;")
+        ignore_help.setStyleSheet("color: #808080; font-size: 11px;")
         ignore_layout.addWidget(ignore_help)
         
         layout.addWidget(ignore_group)
         
         layout.addStretch()
         return widget
-        
+
     def create_preview_tab(self):
         """Create preview tab content"""
         widget = QWidget()
         layout = QVBoxLayout(widget)
-        layout.setContentsMargins(15, 15, 15, 15)
-        
-        preview_label = QLabel("File Preview")
-        preview_label.setFont(QFont("Segoe UI", 14, QFont.Bold))
-        layout.addWidget(preview_label)
+        layout.setContentsMargins(24, 24, 24, 24)
         
         self.preview_text = QTextEdit()
         self.preview_text.setReadOnly(True)
@@ -1013,7 +1013,7 @@ class FileMergerApp(QMainWindow):
         layout.addWidget(self.preview_text)
         
         return widget
-        
+
     def setup_shortcuts(self):
         """Setup keyboard shortcuts"""
         shortcuts = [
@@ -1025,7 +1025,7 @@ class FileMergerApp(QMainWindow):
         
         for key_sequence, callback in shortcuts:
             QShortcut(QKeySequence(key_sequence), self, callback)
-        
+
     def get_icon(self, icon_name: str) -> QIcon:
         """Get system icons"""
         style = QApplication.style()
@@ -1041,157 +1041,269 @@ class FileMergerApp(QMainWindow):
 
     def apply_stylesheet(self):
         """Apply modern stylesheet to application"""
-        self.setStyleSheet("""
-            QMainWindow {
-                background-color: #f8f9fa;
+        QApplication.instance().setStyleSheet("""
+            QMainWindow, QDialog, QMessageBox {
+                background-color: #2b2b2b;
+                color: #e0e0e0;
             }
+            QWidget {
+                color: #e0e0e0;
+                font-family: 'Segoe UI', sans-serif;
+                font-size: 14px;
+            }
+            QLabel {
+                color: #e0e0e0;
+            }
+            
+            /* Tabs */
             QTabWidget::pane {
-                border: 1px solid #dee2e6;
-                background-color: white;
-                border-radius: 4px;
+                border: 1px solid #3c3f41;
+                background-color: #323232;
+                border-radius: 6px;
+                top: -1px;
             }
             QTabWidget::tab-bar {
                 alignment: left;
             }
             QTabBar::tab {
-                background-color: #e9ecef;
-                padding: 8px 16px;
-                margin-right: 2px;
-                border-top-left-radius: 4px;
-                border-top-right-radius: 4px;
+                background-color: #3c3f41;
+                color: #bbbbbb;
+                padding: 10px 24px;
+                margin-right: 4px;
+                border-top-left-radius: 6px;
+                border-top-right-radius: 6px;
+                border: none;
+                font-weight: 500;
             }
             QTabBar::tab:selected {
-                background-color: white;
-                border-bottom: 2px solid #007bff;
+                background-color: #323232;
+                color: #ffffff;
+                border-bottom: 2px solid #4a90e2;
             }
+            QTabBar::tab:hover {
+                background-color: #454749;
+                color: #ffffff;
+            }
+            
+            /* Tree Widget */
             QTreeWidget {
-                border: 1px solid #dee2e6;
-                border-radius: 4px;
-                background-color: white;
-                alternate-background-color: #f8f9fa;
-                gridline-color: #e9ecef;
+                border: 1px solid #3c3f41;
+                border-radius: 6px;
+                background-color: #2b2b2b;
+                alternate-background-color: #323232;
+                color: #e0e0e0;
+                padding: 5px;
             }
             QTreeWidget::item {
                 padding: 6px;
-                border-bottom: 1px solid #f1f3f4;
+                border-radius: 4px;
             }
             QTreeWidget::item:selected {
-                background-color: #007bff;
+                background-color: #365880;
                 color: white;
             }
             QTreeWidget::item:hover {
-                background-color: #e3f2fd;
+                background-color: #3c3f41;
             }
+            QHeaderView::section {
+                background-color: #323232;
+                color: #bbbbbb;
+                padding: 8px;
+                border: none;
+                border-bottom: 1px solid #3c3f41;
+                font-weight: bold;
+            }
+
+            /* Buttons */
             QPushButton {
-                background-color: #007bff;
+                background-color: #365880;
                 color: white;
                 border: none;
                 border-radius: 6px;
-                padding: 10px 20px;
-                font-weight: 500;
+                padding: 10px 24px;
+                font-weight: 600;
+                font-size: 14px;
             }
             QPushButton:hover {
-                background-color: #0056b3;
+                background-color: #4a90e2;
             }
             QPushButton:pressed {
-                background-color: #004085;
+                background-color: #2a4060;
             }
             QPushButton:disabled {
-                background-color: #6c757d;
+                background-color: #454749;
+                color: #808080;
             }
+            
+            /* Inputs */
+            QLineEdit, QComboBox, QSpinBox {
+                border: 1px solid #3c3f41;
+                border-radius: 6px;
+                padding: 10px;
+                background-color: #2b2b2b;
+                color: #e0e0e0;
+                selection-background-color: #4a90e2;
+            }
+            QLineEdit:focus, QComboBox:focus, QSpinBox:focus {
+                border: 1px solid #4a90e2;
+                background-color: #323232;
+            }
+            QTextEdit {
+                border: 1px solid #3c3f41;
+                border-radius: 6px;
+                background-color: #2b2b2b;
+                color: #e0e0e0;
+                padding: 5px;
+            }
+            
+            /* Group Box */
             QGroupBox {
                 font-weight: bold;
-                border: 2px solid #dee2e6;
+                border: 1px solid #3c3f41;
                 border-radius: 8px;
-                margin-top: 10px;
-                padding-top: 10px;
+                margin-top: 24px;
+                padding: 20px;
+                color: #e0e0e0;
             }
             QGroupBox::title {
                 subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 8px 0 8px;
-                color: #495057;
+                subcontrol-position: top left;
+                left: 12px;
+                padding: 0 8px;
+                color: #4a90e2;
+                background-color: #2b2b2b; /* Match window bg */
             }
-            QLineEdit, QComboBox, QSpinBox {
-                border: 1px solid #ced4da;
-                border-radius: 4px;
-                padding: 8px;
-                background-color: white;
-            }
-            QLineEdit:focus, QComboBox:focus, QSpinBox:focus {
-                border-color: #007bff;
-                outline: none;
-            }
-            QTextEdit {
-                border: 1px solid #ced4da;
-                border-radius: 4px;
-                background-color: white;
-            }
+            
+            /* Checkbox */
             QCheckBox {
                 spacing: 8px;
+                color: #e0e0e0;
             }
             QCheckBox::indicator {
-                width: 18px;
-                height: 18px;
-                border: 2px solid #6c757d;
-                border-radius: 3px;
-                background-color: white;
+                width: 20px;
+                height: 20px;
+                border: 2px solid #555;
+                border-radius: 4px;
+                background-color: #2b2b2b;
             }
             QCheckBox::indicator:checked {
-                border: 2px solid #007bff;
-                background-color: #007bff;
+                border-color: #4a90e2;
+                background-color: #4a90e2;
                 image: url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iOSIgdmlld0JveD0iMCAwIDEyIDkiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxwYXRoIGQ9Ik0xIDQuNUw0LjUgOEwxMSAxIiBzdHJva2U9IndoaXRlIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIvPgo8L3N2Zz4K);
             }
+            
+            /* Progress Bar */
             QProgressBar {
-                border: 1px solid #dee2e6;
-                border-radius: 4px;
+                border: 1px solid #3c3f41;
+                border-radius: 6px;
                 text-align: center;
-                background-color: #e9ecef;
+                background-color: #2b2b2b;
+                color: #e0e0e0;
             }
             QProgressBar::chunk {
-                background-color: #28a745;
-                border-radius: 3px;
+                background-color: #4a90e2;
+                border-radius: 5px;
             }
-            QStatusBar {
-                background-color: #f8f9fa;
-                border-top: 1px solid #dee2e6;
-                color: #495057;
-            }
-            QToolBar {
-                background-color: #ffffff;
-                border-bottom: 1px solid #dee2e6;
-                spacing: 8px;
-                padding: 8px;
-            }
-            QToolBar QToolButton {
+            
+            /* Scrollbars */
+            QScrollBar:vertical {
                 border: none;
-                border-radius: 4px;
-                padding: 6px;
+                background: #2b2b2b;
+                width: 12px;
+                margin: 0px;
+            }
+            QScrollBar::handle:vertical {
+                background: #555;
+                min-height: 20px;
+                border-radius: 6px;
                 margin: 2px;
             }
-            QToolBar QToolButton:hover {
-                background-color: #e9ecef;
+            QScrollBar::handle:vertical:hover {
+                background: #666;
             }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+            
+            /* List Widget */
             QListWidget {
-                border: 1px solid #dee2e6;
-                border-radius: 4px;
-                background-color: white;
-                alternate-background-color: #f8f9fa;
+                border: 1px solid #3c3f41;
+                border-radius: 6px;
+                background-color: #2b2b2b;
+                alternate-background-color: #323232;
+                color: #e0e0e0;
+                padding: 5px;
             }
             QListWidget::item {
                 padding: 8px;
-                border-bottom: 1px solid #f1f3f4;
+                border-radius: 4px;
+                color: #e0e0e0;
             }
             QListWidget::item:selected {
-                background-color: #007bff;
+                background-color: #365880;
                 color: white;
             }
             QListWidget::item:hover {
-                background-color: #e3f2fd;
+                background-color: #3c3f41;
+            }
+            
+            /* Dialog Button Box */
+            QDialogButtonBox {
+                button-layout: 0;
+            }
+            
+            /* Status Bar */
+            QStatusBar {
+                background-color: #323232;
+                color: #bbbbbb;
+                border-top: 1px solid #3c3f41;
+            }
+            
+            /* Tool Bar */
+            QToolBar {
+                background-color: #323232;
+                border-bottom: 1px solid #3c3f41;
+                spacing: 10px;
+                padding: 8px;
+            }
+            QToolBar QToolButton {
+                background-color: transparent;
+                border-radius: 4px;
+                padding: 6px;
+                color: #e0e0e0;
+            }
+            QToolBar QToolButton:hover {
+                background-color: #454749;
+            }
+            
+            /* Menus */
+            QMenu {
+                background-color: #3c3f41;
+                color: #e0e0e0;
+                border: 1px solid #2b2b2b;
+            }
+            QMenu::item {
+                padding: 8px 24px;
+            }
+            QMenu::item:selected {
+                background-color: #4a90e2;
+                color: white;
+            }
+            QMenuBar {
+                background-color: #323232;
+                color: #e0e0e0;
+                border-bottom: 1px solid #3c3f41;
+            }
+            QMenuBar::item {
+                padding: 8px 12px;
+                background-color: transparent;
+            }
+            QMenuBar::item:selected {
+                background-color: #454749;
             }
         """)
 
-    def load_ignore_list(self) -> List[str]:
+    def load_ignore_list(self):
         """Load ignore patterns from file"""
         default_ignores = [
             '__pycache__', '*.pyc', '*.pyo', '*.pyd',
@@ -1591,7 +1703,8 @@ class FileMergerApp(QMainWindow):
             'format': self.format_combo.currentText(),
             'max_file_size': self.max_size_spin.value() * 1024 * 1024,
             'include_binary': self.include_binary_check.isChecked(),
-            'include_hidden': self.include_hidden_check.isChecked()
+            'include_hidden': self.include_hidden_check.isChecked(),
+            'backup_mode': self.backup_check.isChecked()
         }
         
         # Update output folder
@@ -1805,13 +1918,21 @@ class FileMergerApp(QMainWindow):
         class ProjectListDialog(QDialog):
             def __init__(self, projects, parent=None):
                 super().__init__(parent)
-                self.setWindowTitle("Projekt öffnen")
+                self.setWindowTitle("Open Project")
                 self.setModal(True)
+                self.resize(500, 400)
                 self.selected_path = None
+                
                 layout = QVBoxLayout(self)
-                label = QLabel("Wähle ein gespeichertes Projekt aus der Liste oder öffne eine Projektdatei:")
+                layout.setContentsMargins(20, 20, 20, 20)
+                layout.setSpacing(15)
+                
+                label = QLabel("Select a saved project or open a file:")
+                label.setStyleSheet("font-weight: bold; font-size: 14px;")
                 layout.addWidget(label)
+                
                 self.list = QListWidget()
+                self.list.setAlternatingRowColors(True)
                 for proj in projects:
                     item = QListWidgetItem()
                     name = proj.get('name') or os.path.basename(proj.get('path',''))
@@ -1821,12 +1942,14 @@ class FileMergerApp(QMainWindow):
                     self.list.addItem(item)
                 self.list.itemDoubleClicked.connect(self.accept)
                 layout.addWidget(self.list)
+                
                 btns = QDialogButtonBox(QDialogButtonBox.Open | QDialogButtonBox.Cancel)
                 btns.accepted.connect(self.accept)
                 btns.rejected.connect(self.reject)
                 layout.addWidget(btns)
+                
                 # Extra Button für Datei suchen
-                self.search_btn = QPushButton("Projektdatei suchen ...")
+                self.search_btn = QPushButton("Browse for Project File...")
                 self.search_btn.clicked.connect(self.search_file)
                 layout.addWidget(self.search_btn)
             def accept(self):
@@ -1890,20 +2013,20 @@ class FileMergerApp(QMainWindow):
     def show_about(self):
         """Show about dialog"""
         about_text = """
-        <h2>File Merger Pro 2.1</h2>
+        <h3>File Merger Pro 2.1</h3>
         <p><b>Professional File Merger for AI and Development</b></p>
         
         <p>Features:</p>
         <ul>
-        <li>📄 Multiple output formats (TXT, Markdown)</li>
-        <li>🔍 Smart file filtering and ignore patterns</li>
-        <li>👁️ File preview functionality</li>
-        <li>💾 Save/Load project configurations</li>
-        <li>🔄 Restore files from merge output</li>
-        <li>🔎 Search and filter files</li>
-        <li>📊 Progress tracking with cancellation</li>
-        <li>🎨 Modern, responsive UI</li>
-        <li>⚡ Background processing</li>
+        <li>Multiple output formats (TXT, Markdown)</li>
+        <li>Smart file filtering and ignore patterns</li>
+        <li>File preview functionality</li>
+        <li>Save/Load project configurations</li>
+        <li>Restore files from merge output</li>
+        <li>Search and filter files</li>
+        <li>Progress tracking with cancellation</li>
+        <li>Modern, responsive UI</li>
+        <li>Background processing</li>
         </ul>
         
         <p><b>Keyboard Shortcuts:</b></p>
@@ -1921,7 +2044,11 @@ class FileMergerApp(QMainWindow):
         <p><i>Version 2.1 - Enhanced Edition</i></p>
         """
         
-        QMessageBox.about(self, "About File Merger Pro", about_text)
+        msg = QMessageBox(self)
+        msg.setWindowTitle("About File Merger Pro")
+        msg.setTextFormat(Qt.RichText)
+        msg.setText(about_text)
+        msg.exec_()
 
     def load_settings(self):
         """Load application settings"""
