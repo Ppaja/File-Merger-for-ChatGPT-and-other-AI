@@ -199,7 +199,7 @@ class FileProcessor(QThread):
             total_files = self._count_selected_files(self.tree_widget.invisibleRootItem())
             processed_files = 0
             
-            with open(merge_filename, 'w', encoding='utf-8') as merge_file:
+            with open(merge_filename, 'w', encoding='utf-8-sig') as merge_file:
                 # Write header based on format
                 self._write_header(merge_file, output_format)
                 
@@ -408,6 +408,14 @@ class FileProcessor(QThread):
     
     def _detect_encoding(self, filepath: str) -> str:
         """Detect file encoding"""
+        # First, try to read as UTF-8
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                f.read()
+                return 'utf-8'
+        except (UnicodeDecodeError, Exception):
+            pass
+
         if HAS_CHARDET:
             try:
                 with open(filepath, 'rb') as f:
@@ -471,7 +479,7 @@ class FileRestorer(QThread):
     def restore_files(self) -> Tuple[bool, str]:
         """Parse merge file and restore original files"""
         try:
-            with open(self.merge_file_path, 'r', encoding='utf-8') as f:
+            with open(self.merge_file_path, 'r', encoding='utf-8-sig') as f:
                 content = f.read()
         except Exception as e:
             return False, f"Could not read merge file: {e}"
